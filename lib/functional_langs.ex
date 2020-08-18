@@ -2,6 +2,7 @@ defmodule FunctionalLangs do
   require Logger
 
   alias FunctionalLangs.HackerNewsClient
+  alias FunctionalLangs.Display
 
   @langs_of_interest ~w(elixir erlang haskell clojure scala f# idris ocaml)
   @label_padding 7
@@ -11,10 +12,12 @@ defmodule FunctionalLangs do
     # Setup Telemetry events and Agent to store timings
     {:ok, http_timings_agent} = Agent.start_link(fn -> [] end)
     start_time = System.monotonic_time()
-    attach_telemetry_event(http_timings_agent)
 
     # Get all of the child IDs associated with a parent item
     {:ok, child_ids} = HackerNewsClient.get_child_ids(parent_item_id)
+
+    total_items = Enum.count(child_ids)
+    attach_telemetry_event(http_timings_agent, total_items)
 
     # Concurrently process all of the child IDs and aggregate the results into a graph
     child_ids
@@ -42,11 +45,13 @@ defmodule FunctionalLangs do
     IO.puts("Total time to fetch all #{length(child_ids)} child posts: #{total_time}ms")
   end
 
-  defp attach_telemetry_event(http_timings_agent) do
+  defp attach_telemetry_event(http_timings_agent, total_items) do
     :telemetry.attach(
       @telemetry_event_id,
       [:finch, :response, :stop],
       fn _event, %{duration: duration}, _metadata, _config ->
+        display_progress_bar(http_timings_agent, total_items)
+
         Agent.update(http_timings_agent, fn timings -> [duration | timings] end)
       end,
       nil
@@ -96,5 +101,13 @@ defmodule FunctionalLangs do
         |> Kernel./(count)
         |> :erlang.float_to_binary(decimals: 2)
     end
+  end
+
+  defp display_progress_bar(http_timings_agent, total_items) do
+    current =
+      http_timings_agent
+      |> Agent.get(&Enum.count/1)
+
+    IO.puts(Display.progress_bar(current, total_items))
   end
 end
